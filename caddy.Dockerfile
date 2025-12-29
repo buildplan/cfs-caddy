@@ -1,44 +1,30 @@
-# Stage 1: Build custom Caddy with CrowdSec bouncer AND Cloudflare DNS
+# Stage 1: Build Caddy with plugins using xcaddy
 ARG GO_VERSION=1.25
 FROM golang:${GO_VERSION}-alpine AS builder
 
+# 1. Install git (required to fetch plugins)
 RUN apk add --no-cache git
+
+# 2. Install xcaddy (the official builder tool)
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 WORKDIR /app
 
-# Create a main.go file that imports Caddy and all the desired plugins
-RUN tee main.go <<EOF
-package main
+# 3. Build the binary
+RUN xcaddy build \
+    --with github.com/hslatman/caddy-crowdsec-bouncer/appsec \
+    --with github.com/hslatman/caddy-crowdsec-bouncer/http \
+    --with github.com/hslatman/caddy-crowdsec-bouncer/layer4 \
+    --with github.com/caddy-dns/cloudflare \
+    --with github.com/WeidiDeng/caddy-cloudflare-ip
 
-import (
-	caddycmd "github.com/caddyserver/caddy/v2/cmd"
-
-	_ "github.com/caddyserver/caddy/v2/modules/standard"
-	_ "github.com/hslatman/caddy-crowdsec-bouncer/appsec"
-	_ "github.com/hslatman/caddy-crowdsec-bouncer/http"
-	_ "github.com/hslatman/caddy-crowdsec-bouncer/layer4"
-	_ "github.com/caddy-dns/cloudflare"
-)
-
-func main() {
-	caddycmd.Main()
-}
-EOF
-
-# Initialize a Go module and download all the necessary dependencies
-RUN go mod init custom-caddy && go mod tidy
-
-# Build CS-Caddy binary
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -o /usr/bin/caddy \
-    -ldflags "-w -s" .
-
-# Final stage: Use upstream Caddy base image
+# Stage 2: Final Image using official Caddy base
 FROM caddy:latest
 
-# Copy CS-Caddy binary from the builder stage
-COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+# Copy our custom-built binary over the standard one
+COPY --from=builder /go/bin/caddy /usr/bin/caddy
 
+# Metadata
 LABEL org.opencontainers.image.title="cfs-caddy" \
-      org.opencontainers.image.description="Custom Caddy build with CrowdSec bouncer and Cloudflare DNS" \
+      org.opencontainers.image.description="Custom Caddy with CrowdSec, Cloudflare DNS, and Cloudflare IP Source" \
       org.opencontainers.image.source="https://github.com/buildplan/cfs-caddy"
