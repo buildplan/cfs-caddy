@@ -1,0 +1,123 @@
+name: Build and Push CFS-Caddy
+
+on:
+  repository_dispatch:
+    types: [caddy-release, bouncer-release]
+  workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - '.github/workflows/build-and-push.yml'
+      - 'caddy.Dockerfile'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: cfs-caddy
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DEFAULT_GO_VERSION: 1.25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Latest Caddy Version
+        id: caddy
+        run: |
+          CADDY_TAG=$(gh api /repos/caddyserver/caddy/releases/latest --jq .tag_name)
+          CADDY_VERSION=$(echo "${CADDY_TAG}" | sed 's/^v//')
+          echo "CADDY_TAG=${CADDY_TAG}" >> $GITHUB_ENV
+          echo "CADDY_VERSION=${CADDY_VERSION}" >> $GITHUB_ENV
+
+      - name: Fetch Latest Bouncer Version
+        id: bouncer
+        run: |
+          BOUNCER_VERSION=$(gh api /repos/hslatman/caddy-crowdsec-bouncer/releases/latest --jq .tag_name | sed 's/^v//')
+          echo "BOUNCER_VERSION=${BOUNCER_VERSION}" >> $GITHUB_ENV
+
+      - name: Fetch Required Go Version from Caddy's go.mod
+        id: go_version
+        run: |
+          GO_VERSION_URL="https://raw.githubusercontent.com/caddyserver/caddy/${{ env.CADDY_TAG }}/go.mod"
+          DYNAMIC_GO_VERSION=$(curl -sL --fail "${GO_VERSION_URL}" | grep -E "^go [0-9]+\.[0-9]+" | awk '{print $2}' || true)
+          
+          if [[ -n "${DYNAMIC_GO_VERSION}" ]]; then
+            echo "GO_VERSION=${DYNAMIC_GO_VERSION}" >> $GITHUB_ENV
+          else
+            echo "GO_VERSION=${{ env.DEFAULT_GO_VERSION }}" >> $GITHUB_ENV
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./caddy.Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.CADDY_VERSION }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:bouncer-${{ env.BOUNCER_VERSION }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.CADDY_VERSION }}-bouncer-${{ env.BOUNCER_VERSION }}
+            iamdockin/${{ env.IMAGE_NAME }}:latest
+            iamdockin/${{ env.IMAGE_NAME }}:${{ env.CADDY_VERSION }}
+            iamdockin/${{ env.IMAGE_NAME }}:bouncer-${{ env.BOUNCER_VERSION }}
+            iamdockin/${{ env.IMAGE_NAME }}:${{ env.CADDY_VERSION }}-bouncer-${{ env.BOUNCER_VERSION }}
+          labels: |
+            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
+            org.opencontainers.image.description=Custom Caddy image with CrowdSec bouncer and Cloudflare DNS
+            org.opencontainers.image.version=${{ env.CADDY_VERSION }}-bouncer-${{ env.BOUNCER_VERSION }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cfs-caddy-${{ env.CADDY_VERSION }}-bouncer-${{ env.BOUNCER_VERSION }}
+          name: "CFS-Caddy ${{ env.CADDY_VERSION }} + Bouncer ${{ env.BOUNCER_VERSION }}"
+          body: |
+            Automated build of Caddy v${{ env.CADDY_VERSION }} with CrowdSec Bouncer v${{ env.BOUNCER_VERSION }} and Cloudflare DNS.
+            
+            - **Image:** `ghcr.io/${{ github.repository_owner }}/cfs-caddy:${{ env.CADDY_VERSION }}-bouncer-${{ env.BOUNCER_VERSION }}`
+            - Caddy: https://github.com/caddyserver/caddy/releases/tag/v${{ env.CADDY_VERSION }}
+            - Bouncer: https://github.com/hslatman/caddy-crowdsec-bouncer/releases/tag/v${{ env.BOUNCER_VERSION }}
+            - Cloudflare Plugin: https://github.com/caddy-dns/cloudflare
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Clean up old GHCR images
+        # uses: quartx-analytics/ghcr-cleaner@v1
+        # with:
+          # owner-type: user
+          # token: ${{ secrets.PAT_TOKEN }}
+          # repository-owner: ${{ github.repository_owner }}
+          # repository-name: ${{ env.IMAGE_NAME }}
+          # delete-untagged: true
+          # keep-at-most: 5
