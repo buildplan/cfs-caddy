@@ -1,6 +1,6 @@
 # 1. GLOBAL ARGS
 ARG GO_VERSION=1.25
-ARG CADDY_VERSION
+ARG CADDY_VERSION=2
 
 # --- Stage 1: Builder ---
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
