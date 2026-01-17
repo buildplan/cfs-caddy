@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'dev'
     paths:
       - '.github/workflows/build-and-push.yml'
       - 'caddy.Dockerfile'
@@ -27,6 +28,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- FETCH VERSIONS ---
       - name: Fetch Latest Caddy Version
         id: caddy
         run: |
@@ -44,9 +46,7 @@ jobs:
       - name: Fetch Latest Cloudflare Plugin Version
         id: cloudflare
         run: |
-          # Fetch tags and take the first one
           CF_TAG=$(gh api /repos/caddy-dns/cloudflare/tags --jq '.[0].name')
-          # Remove 'v' prefix if present for clean versioning
           CF_VERSION=$(echo "${CF_TAG}" | sed 's/^v//')
           echo "CF_VERSION=${CF_VERSION}" >> $GITHUB_ENV
 
@@ -62,6 +62,7 @@ jobs:
             echo "GO_VERSION=${{ env.DEFAULT_GO_VERSION }}" >> $GITHUB_ENV
           fi
 
+      # --- BUILD AND PUSH ---
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -85,6 +86,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             GO_VERSION=${{ env.GO_VERSION }}
+            CADDY_VERSION=${{ env.CADDY_VERSION }}
+            BOUNCER_VERSION=${{ env.BOUNCER_VERSION }}
+            CF_VERSION=${{ env.CF_VERSION }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.CADDY_VERSION }}
