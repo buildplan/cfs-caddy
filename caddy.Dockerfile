@@ -2,14 +2,18 @@
 ARG GO_VERSION=1.25
 ARG CADDY_VERSION
 
-FROM golang:${GO_VERSION}-alpine AS builder
+# 1: Pin the builder to the native hardware ($BUILDPLATFORM)
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
 
-# Redeclare ARGs to use them inside this stage
 ARG CADDY_VERSION
 ARG BOUNCER_VERSION
 ARG CF_VERSION
 
-# 1. Install git (required to fetch plugins)
+# 2: Docker automatically passes these args
+ARG TARGETARCH
+ARG TARGETOS
+
+# 1. Install git
 RUN apk add --no-cache git
 
 # 2. Install xcaddy
@@ -17,9 +21,8 @@ RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 WORKDIR /app
 
-# 3. Build the binary
-# Use v${VERSION} to ensure build is for exactly it was triggered on
-RUN xcaddy build v${CADDY_VERSION} \
+# 3. Build the binary (Cross-Compilation)
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} xcaddy build v${CADDY_VERSION} \
     --output /go/bin/caddy \
     --with github.com/hslatman/caddy-crowdsec-bouncer/appsec@v${BOUNCER_VERSION} \
     --with github.com/hslatman/caddy-crowdsec-bouncer/http@v${BOUNCER_VERSION} \
