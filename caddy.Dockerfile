@@ -1,27 +1,26 @@
-# Stage 1: Build Caddy with plugins using xcaddy
+# 1. GLOBAL ARGS
 ARG GO_VERSION=1.25
 ARG CADDY_VERSION
 
-# 1: Pin the builder to the native hardware ($BUILDPLATFORM)
+# --- Stage 1: Builder ---
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder
 
+# 2. REDECLARE ARGS FOR BUILDER
 ARG CADDY_VERSION
 ARG BOUNCER_VERSION
 ARG CF_VERSION
-
-# 2: Docker automatically passes these args
 ARG TARGETARCH
 ARG TARGETOS
 
-# 1. Install git
+# Install git
 RUN apk add --no-cache git
 
-# 2. Install xcaddy
+# Install xcaddy
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 WORKDIR /app
 
-# 3. Build the binary (Cross-Compilation)
+# 3. Build with Cross-Compilation Support
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} xcaddy build v${CADDY_VERSION} \
     --output /go/bin/caddy \
     --with github.com/hslatman/caddy-crowdsec-bouncer/appsec@v${BOUNCER_VERSION} \
@@ -30,11 +29,17 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} xcaddy build v${CADDY_VERSION} \
     --with github.com/caddy-dns/cloudflare@v${CF_VERSION} \
     --with github.com/WeidiDeng/caddy-cloudflare-ip
 
-# Stage 2: Final Image
-# Use a pinned version of the base image to match the binary
+# --- Stage 2: Final Image ---
 FROM caddy:${CADDY_VERSION}-alpine
 
-# Copy the binary from the builder stage
+# 4. REDECLARE ARGS FOR FINAL STAGE
+ARG CADDY_VERSION
+ARG BOUNCER_VERSION
+ARG CF_VERSION
+
+# Install dependencies for Production
+RUN apk add --no-cache ca-certificates tzdata mailcap
+
 COPY --from=builder /go/bin/caddy /usr/bin/caddy
 
 # Metadata
