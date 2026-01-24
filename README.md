@@ -70,7 +70,9 @@ This configuration enables the DNS challenge for SSL, trusts Cloudflare's proxy 
 
 # --- Grafana Block Example ---
 stats.mydomain.test {
-  # Create per app/service log file
+    # Add cloudflare 
+    import cloudflare_tls
+    # Create per app/service log file
 	log {
 		output file /var/log/caddy/grafana-access.log {
 			mode 0640
@@ -80,7 +82,7 @@ stats.mydomain.test {
 		}
 		format json
 	}
-
+    # route with crowdsec
 	route {
 		crowdsec
 		appsec
